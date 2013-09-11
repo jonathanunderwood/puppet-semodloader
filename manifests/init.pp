@@ -14,71 +14,68 @@ class semodloader ($moddir = '/usr/local/share/selinux') {
                  ],
   }
 
+  # Set some resource defaults for simplification of the definition
+  # below.
+  File {
+    owner => 'root',
+    group => 'root',
+    mode => '0644',
+  }
+
+  Exec {
+    path => '/sbin:/usr/sbin:/bin:/usr/bin',
+    refreshonly => true,
+    cwd => $semodloader::moddir,
+  }
+
   define semodule ($source, $status = 'present') {
+    file {"${semodloader::moddir}/${name}.te":
+      ensure  => $status,
+      source  => $source,
+      require => File ["${semodloader::moddir}"],
+    }
+    
+    file { "${semodloader::moddir}/${name}.mod":
+      tag => ['selinux-module-build', 'selinux-module'],
+    }
+
+    file { "${semodloader::moddir}/${name}.pp":
+      tag => ['selinux-module-build', 'selinux-module'],
+    }
+    
     case $status {
       present: {
-        file {"${semodloader::moddir}/${name}.te":
-          owner    => 'root',
-          group    => 'root',
-          mode     => 644,
-          source   => $source,
-          require => File ["${semodloader::moddir}"],
+        exec { "${name}-buildmod":
+          command => "checkmodule -M -m -o ${name}.mod ${name}.te",
         }
         
-        file {"${semodloader::moddir}/${name}.mod":
-          owner    => 'root',
-          group    => 'root',
-          mode     => 644,
-          require => File ["${semodloader::moddir}"],
-        }
-        
-        file {"${semodloader::moddir}/${name}.pp":
-          owner    => 'root',
-          group    => 'root',
-          mode     => 644,
-          require => File ["${semodloader::moddir}"],
+        exec { "${name}-buildpp":
+          command => "semodule_package -m ${name}.mod -o ${name}.pp",
         }
 
-        exec {"${name}-buildpp":
-          command     => "checkmodule -M -m -o ${name}.mod ${name}.te ; semodule_package -m ${name}.mod -o ${name}.pp",
-          path        => ['/sbin', '/usr/sbin', '/bin', '/usr/bin'],
-          cwd         => "${semodloader::moddir}", 
-          subscribe   => File ["${semodloader::moddir}/${name}.te"],
-          require     => File ["${semodloader::moddir}/${name}.te"],
-          refreshonly => true,
-        }
-        
-        selmodule {$name:
-          ensure => present,
-          syncversion => true,
-          selmodulepath => "${semodloader::moddir}/${name}.pp",
-          require => Exec ["${name}-buildpp"],
+        exec { "${name}-install":
+          command => "semodule -i ${name}.pp",
         }
 
+        # This sorts out the correct ordering of execs
+        File["${semodloader::moddir}/${name}.te"]
+        ~> Exec["${name}-buildmod"]
+        ~> Exec["${name}-buildpp"]
+        ~> Exec["${name}-install"]
+        -> File<| tag == 'selinux-module-build' |>
       }
-      
+
       absent: {
-        file {"${semodloader::moddir}/${name}.te":
-          ensure => absent,
+        exec { "${name}-remove":
+          command => "semodule -r ${name}.pp > /dev/null 2>&1",
         }
         
-        file {"${semodloader::moddir}/${name}.mod":
-          ensure => absent,
-        }
-        file {"${semodloader::moddir}/${name}.pp":
-          ensure => absent,
-        }
-
-        exec {"${name}-remove":
-          command     => "semodule -r ${name} > /dev/null 2>&1",
-          path        => ['/sbin', '/usr/sbin', '/bin', '/usr/bin'],
-        }
+        Exec["${name}-remove"]-> File<| tag == 'selinux-module' |>
       }
       
       default: {
         fail("status variable not recognized")
       }
-         
     }
   }
 }
