@@ -14,21 +14,21 @@ class semodloader ($moddir = '/usr/local/share/selinux') {
                  ],
   }
 
-  # Set some resource defaults for simplification of the definition
-  # below.
-  File {
-    owner => 'root',
-    group => 'root',
-    mode => '0644',
-  }
-
-  Exec {
-    path => '/sbin:/usr/sbin:/bin:/usr/bin',
-    refreshonly => true,
-    cwd => $semodloader::moddir,
-  }
 
   define semodule ($source, $status = 'present') {
+  # Set some resource defaults for simplification below.
+    File {
+      owner => 'root',
+      group => 'root',
+      mode => '0644',
+    }
+
+    Exec {
+      path => '/sbin:/usr/sbin:/bin:/usr/bin',
+      refreshonly => true,
+      cwd => $semodloader::moddir,
+    }
+    
     file {"${semodloader::moddir}/${name}.te":
       ensure  => $status,
       source  => $source,
